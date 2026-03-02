@@ -5,18 +5,18 @@ import { collection, writeBatch, doc, getDocs, query, where } from 'firebase/fir
  * Baseado na lógica legado do Apps Script
  */
 const generateId = (nome, dataNascimento) => {
-    const rawId = `${nome.trim().toUpperCase()}${dataNascimento}`;
+    const rawId = `${nome.trim().toUpperCase()}${String(dataNascimento)}`;
     return btoa(rawId).substring(0, 30); // Limita a 30 caracteres para segurança no Firebase ID
 };
 
 /**
  * Motor de Reconciliação do Censo utilizando XLSX e Firestore Batch
  * 
- * @param {Array} jsonData Array de objetos extraídos da planilha XLSX.
+ * @param {Array} pacientesUpload Array de objetos extraídos da planilha XLSX.
  * @param {Object} db Instância do Firestore configurada.
  * @returns {Object} { updated: number, created: number, discharged: number }
  */
-export const processExcelUpload = async (jsonData, db) => {
+export const processExcelUpload = async (pacientesUpload, db) => {
     try {
         const batch = writeBatch(db);
         const pacientesRef = collection(db, 'gestaoFluxo_pacientes');
@@ -35,29 +35,17 @@ export const processExcelUpload = async (jsonData, db) => {
         const now = new Date();
 
         // 2. Itera sobre os dados do XLSX
-        jsonData.forEach((row, index) => {
-            if (index === 0 && Object.keys(row)[0].toLowerCase().includes('prontuário')) return; // Pula cabeçalho se houver
-
-            const nome = row['Nome'] || row['NOME'] || '';
-            const nascimento = row['DataNascimento'] || row['Data Nascimento'] || row['DATA DE NASCIMENTO'] || '';
-            const setor = row['Setor'] || row['SETOR'] || '';
-            const leito = row['Leito'] || row['LEITO'] || '';
-            const especialidade = row['Especialidade'] || row['ESPECIALIDADE'] || '';
-            const sexo = row['Sexo'] || row['SEXO'] || '';
-            const dataInternacao = row['DataInternacao'] || row['DATA DE INTERNAÇÃO'] || now.toISOString();
-
-            if (!nome) return; // Proteção contra linhas vazias
-
-            const uid = generateId(nome, nascimento);
+        pacientesUpload.forEach((p) => {
+            const uid = generateId(p.nome, p.nascimento);
             currentXlsxUids.add(uid);
             const docRef = doc(pacientesRef, uid);
 
             if (pacientesMap.has(uid)) {
                 // Paciente existe: Atualiza dados voláteis (Setor, Leito, etc)
                 batch.update(docRef, {
-                    setor: setor,
-                    leito: leito,
-                    especialidade: especialidade,
+                    setor: p.setor,
+                    leito: p.leito,
+                    especialidade: p.especialidade,
                     status: 'ATIVO',
                     ultimaSinc: now
                 });
@@ -65,13 +53,13 @@ export const processExcelUpload = async (jsonData, db) => {
             } else {
                 // Paciente novo: Cria
                 batch.set(docRef, {
-                    nome: nome.toUpperCase(),
-                    nascimento: nascimento,
-                    sexo: sexo,
-                    dataInternacao: dataInternacao,
-                    setor: setor,
-                    leito: leito,
-                    especialidade: especialidade,
+                    nome: p.nome.toUpperCase(),
+                    nascimento: p.nascimento,
+                    sexo: p.sexo,
+                    dataInternacao: p.dataInternacao || now.toISOString(),
+                    setor: p.setor,
+                    leito: p.leito,
+                    especialidade: p.especialidade,
                     status: 'ATIVO',
                     numeroSisreg: '',
                     historico: [],

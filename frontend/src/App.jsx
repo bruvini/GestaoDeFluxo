@@ -5,6 +5,10 @@ import {
   MapPin, Clock, Calendar, AlertTriangle, FileText,
   User, Hash, FileSpreadsheet
 } from 'lucide-react';
+import Swal from 'sweetalert2';
+import * as XLSX from 'xlsx';
+import { db } from './config/firebase';
+import { processExcelUpload } from './services/syncEngine';
 
 const calculateTimeElapsed = (admissionDate) => {
   const now = new Date();
@@ -38,6 +42,57 @@ const groupedPatients = mockPatients.reduce((acc, patient) => {
 function App() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const fileInputRef = useRef(null);
+
+  const handleImport = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    Swal.fire({
+      title: 'Processando Relatório...',
+      allowOutsideClick: false,
+      didOpen: () => {
+        Swal.showLoading();
+      }
+    });
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const data = e.target.result;
+        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        const rows = jsonData.slice(3);
+
+        const dadosTratados = rows
+          .filter(row => row[0])
+          .map(row => ({
+            nome: String(row[0] || ''),
+            nascimento: row[1],
+            sexo: String(row[2] || ''),
+            dataInternacao: row[3],
+            setor: String(row[4] || ''),
+            leito: String(row[5] || ''),
+            especialidade: String(row[6] || '')
+          }));
+
+        await processExcelUpload(dadosTratados, db);
+        Swal.fire('Sincronizado', 'O censo foi atualizado com sucesso.', 'success');
+      } catch (error) {
+        console.error(error);
+        Swal.fire('Erro', 'Falha na importacao', 'error');
+      } finally {
+        event.target.value = '';
+      }
+    };
+    reader.onerror = () => {
+      Swal.fire('Erro', 'Falha ao ler o arquivo', 'error');
+      event.target.value = '';
+    };
+    reader.readAsArrayBuffer(file);
+  };
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -76,6 +131,7 @@ function App() {
             <input
               type="file"
               ref={fileInputRef}
+              onChange={handleImport}
               className="hidden"
               accept=".xlsx, .xls, .csv"
             />
@@ -194,7 +250,7 @@ function App() {
                 {patients.map((patient) => (
                   <div
                     key={patient.id}
-                    className={`bg-white border text-slate-800 border-slate-200 rounded shadow-sm flex flex-col w-full border-l-[16px] ${patient.statusColor}`}
+                    className={`bg - white border text - slate - 800 border - slate - 200 rounded shadow - sm flex flex - col w - full border - l - [16px] ${patient.statusColor} `}
                   >
                     <div className="p-4 flex-1">
                       <div className="flex justify-between items-start mb-3 gap-2">
