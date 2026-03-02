@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { differenceInHours, differenceInDays } from 'date-fns';
 import {
   Activity, Printer, Upload, RefreshCw, Search,
@@ -36,8 +36,25 @@ const getStatusColor = (admissionDate) => {
   return 'border-slate-800';
 };
 
+const SETORES_URGENCIA = [
+  "PS DECISÃO CIRURGICA",
+  "PS DECISÃO CLINICA",
+  "SALA DE EMERGENCIA",
+  "SALA LARANJA"
+];
+
 function App() {
   const [pacientes, setPacientes] = useState([]);
+
+  // Filtros de Estado
+  const [busca, setBusca] = useState('');
+  const [setorFiltro, setSetorFiltro] = useState('');
+  const [statusFiltro, setStatusFiltro] = useState('');
+  const [dataInicio, setDataInicio] = useState('');
+  const [dataFim, setDataFim] = useState('');
+  const [filtroSisreg, setFiltroSisreg] = useState(false);
+  const [filtroNotas, setFiltroNotas] = useState(false);
+
   const [currentTime, setCurrentTime] = useState(new Date());
   const fileInputRef = useRef(null);
 
@@ -123,21 +140,97 @@ function App() {
     reader.readAsArrayBuffer(file);
   };
 
-  const groupedPatients = pacientes.reduce((acc, p) => {
+  // Lista dinâmica de setores únicos recebidos do banco para o select
+  const setoresUnicos = useMemo(() => {
+    const setores = pacientes.map(p => p.setor).filter(Boolean);
+    return [...new Set(setores)].sort();
+  }, [pacientes]);
+
+  // ENGINE DE FILTRAGEM (3 Fases)
+  const motorFiltragem = useMemo(() => {
+    // FASE 1: Filtro Base (Busca, Setor, Status, Datas)
+    const fase1 = pacientes.filter(p => {
+      // 1.1 Busca (Nome/Leito)
+      if (busca) {
+        const trm = busca.toLowerCase();
+        const nMatch = p.nome?.toLowerCase().includes(trm);
+        const lMatch = p.leito?.toLowerCase().includes(trm);
+        if (!nMatch && !lMatch) return false;
+      }
+
+      // 1.2 Setor
+      if (setorFiltro && p.setor !== setorFiltro) return false;
+
+      // 1.3 Data (Internação)
+      if (dataInicio || dataFim) {
+        const adm = p.admission;
+        if (dataInicio && adm < new Date(dataInicio)) return false;
+        if (dataFim) {
+          const fim = new Date(dataFim);
+          fim.setHours(23, 59, 59, 999);
+          if (adm > fim) return false;
+        }
+      }
+
+      // 1.4 Status (Regras Legado Baseadas em Tempo)
+      if (statusFiltro) {
+        const hours = differenceInHours(new Date(), p.admission);
+        const days = differenceInDays(new Date(), p.admission);
+
+        switch (statusFiltro) {
+          case 'Verde': if (hours >= 48) return false; break;
+          case 'Amarelo': if (hours < 48 || hours >= 72) return false; break;
+          case 'Vermelho': if (hours < 72 || days >= 7) return false; break;
+          case 'Laranja': if (days < 7 || days >= 15) return false; break;
+          case 'Roxo': if (days < 15 || days >= 30) return false; break;
+          case 'Preto': if (days < 30) return false; break;
+          default: break;
+        }
+      }
+      return true;
+    });
+
+    // FASE 2: Contadores Analíticos (Baseado na Fase 1)
+    let countSemSisreg = 0;
+    let countComNotas = 0;
+
+    fase1.forEach(p => {
+      // Regra legado: É Urgência e não tem SISREG preenchido
+      const msisreg = SETORES_URGENCIA.some(s => p.setor?.toUpperCase().includes(s)) && !p.numeroSisreg;
+      if (msisreg) countSemSisreg++;
+      if (p.historico && p.historico.length > 0) countComNotas++;
+    });
+
+    // FASE 3: Filtro Final (Aplica os Toggles do Painel)
+    const dadosFinais = fase1.filter(p => {
+      if (filtroSisreg) {
+        const msisreg = SETORES_URGENCIA.some(s => p.setor?.toUpperCase().includes(s)) && !p.numeroSisreg;
+        if (!msisreg) return false;
+      }
+      if (filtroNotas && (!p.historico || p.historico.length === 0)) return false;
+      return true;
+    });
+
+    return { filtrados: dadosFinais, countSemSisreg, countComNotas };
+  }, [pacientes, busca, setorFiltro, statusFiltro, dataInicio, dataFim, filtroSisreg, filtroNotas]);
+
+  // Agrupamento usando apenas a lista FILTRADA FINAL
+  const groupedPatients = motorFiltragem.filtrados.reduce((acc, p) => {
     const sector = p.setor || 'NÃO INFORMADO';
     if (!acc[sector]) acc[sector] = [];
     acc[sector].push(p);
     return acc;
   }, {});
 
-  const kpis = { verde: 0, amarelo: 0, laranja: 0, vermelho: 0, roxo: 0, preto: 0 };
-  pacientes.forEach(p => {
+  // Contagem de KPIs lendo da lista FILTRADA FINAL
+  const kpis = { verde: 0, amarelo: 0, vermelho: 0, laranja: 0, roxo: 0, preto: 0 };
+  motorFiltragem.filtrados.forEach(p => {
     const hours = differenceInHours(new Date(), p.admission);
     const days = differenceInDays(new Date(), p.admission);
     if (hours < 48) kpis.verde++;
     else if (hours < 72) kpis.amarelo++;
-    else if (days < 7) kpis.laranja++;
-    else if (days < 15) kpis.vermelho++;
+    else if (days < 7) kpis.vermelho++;
+    else if (days < 15) kpis.laranja++;
     else if (days < 30) kpis.roxo++;
     else kpis.preto++;
   });
@@ -204,11 +297,11 @@ function App() {
           </div>
           <div className="bg-white rounded-lg p-4 shadow-sm border-b-4 border-orange-500 flex flex-col justify-between">
             <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">72H A 7 DIAS</div>
-            <div className="text-3xl font-black text-slate-800">{kpis.laranja}</div>
+            <div className="text-3xl font-black text-slate-800">{kpis.vermelho}</div>
           </div>
           <div className="bg-white rounded-lg p-4 shadow-sm border-b-4 border-red-500 flex flex-col justify-between">
             <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">7 A 15 DIAS</div>
-            <div className="text-3xl font-black text-slate-800">{kpis.vermelho}</div>
+            <div className="text-3xl font-black text-slate-800">{kpis.laranja}</div>
           </div>
           <div className="bg-white rounded-lg p-4 shadow-sm border-b-4 border-purple-500 flex flex-col justify-between">
             <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">15 A 30 DIAS</div>
@@ -229,7 +322,9 @@ function App() {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                 <input
                   type="text"
-                  placeholder="Nome, Prontuário..."
+                  value={busca}
+                  onChange={(e) => setBusca(e.target.value)}
+                  placeholder="Nome, Leito..."
                   className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50 text-slate-900"
                 />
               </div>
@@ -237,36 +332,79 @@ function App() {
 
             <div>
               <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Setor</label>
-              <select className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50">
+              <select
+                value={setorFiltro}
+                onChange={(e) => setSetorFiltro(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50"
+              >
                 <option value="">Todos os Setores</option>
+                {setoresUnicos.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Status</label>
-              <select className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50">
+              <select
+                value={statusFiltro}
+                onChange={(e) => setStatusFiltro(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50"
+              >
                 <option value="">Todos os Status</option>
-                <option value="Estável">Estável (&lt; 48h)</option>
-                <option value="Atenção">Atenção (48h a 72h)</option>
-                <option value="Crítico">Crítico (7 a 15 dias)</option>
+                <option value="Verde">Até 48h</option>
+                <option value="Amarelo">48 a 72h</option>
+                <option value="Vermelho">72h a 7 dias</option>
+                <option value="Laranja">7 a 15 dias</option>
+                <option value="Roxo">15 a 30 dias</option>
+                <option value="Preto">Mais de 30 dias</option>
               </select>
             </div>
 
-            <div className="flex gap-4 xl:col-span-2 mt-4 xl:mt-0 xl:justify-end">
+            <div className="flex gap-2 xl:col-span-2">
+              <div className="flex-1">
+                <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Internação De:</label>
+                <input
+                  type="date"
+                  value={dataInicio}
+                  onChange={(e) => setDataInicio(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Até:</label>
+                <input
+                  type="date"
+                  value={dataFim}
+                  onChange={(e) => setDataFim(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-4 xl:col-span-6 mt-4 xl:mt-0 xl:justify-end pt-2 border-t border-slate-100">
               <label className="flex items-center gap-2 cursor-pointer">
                 <div className="relative">
-                  <input type="checkbox" className="sr-only peer" />
+                  <input
+                    type="checkbox"
+                    className="sr-only peer"
+                    checked={filtroSisreg}
+                    onChange={(e) => setFiltroSisreg(e.target.checked)}
+                  />
                   <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-red-500"></div>
                 </div>
-                <span className="text-sm font-semibold text-slate-700">Sem SISREG</span>
+                <span className="text-sm font-semibold text-slate-700">Sem SISREG ({motorFiltragem.countSemSisreg})</span>
               </label>
 
               <label className="flex items-center gap-2 cursor-pointer">
                 <div className="relative">
-                  <input type="checkbox" className="sr-only peer" />
+                  <input
+                    type="checkbox"
+                    className="sr-only peer"
+                    checked={filtroNotas}
+                    onChange={(e) => setFiltroNotas(e.target.checked)}
+                  />
                   <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-500"></div>
                 </div>
-                <span className="text-sm font-semibold text-slate-700">Com Notas</span>
+                <span className="text-sm font-semibold text-slate-700">Com Notas ({motorFiltragem.countComNotas})</span>
               </label>
             </div>
           </div>
@@ -340,11 +478,11 @@ function App() {
             </div>
           ))}
 
-          {pacientes.length === 0 && (
+          {motorFiltragem.filtrados.length === 0 && (
             <div className="text-center p-12 bg-white rounded-lg border border-dashed border-slate-300">
               <Activity className="mx-auto h-12 w-12 text-slate-300" />
-              <h3 className="mt-2 text-sm font-semibold text-slate-900">Aguardando atualização de dados</h3>
-              <p className="mt-1 text-sm text-slate-500">Banco de dados não possui entradas ativas no momento ou sincronização em andamento.</p>
+              <h3 className="mt-2 text-sm font-semibold text-slate-900">Nenhum paciente encontrado</h3>
+              <p className="mt-1 text-sm text-slate-500">Altere os filtros ou aguarde a atualização de dados.</p>
             </div>
           )}
         </div>
