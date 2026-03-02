@@ -9,12 +9,19 @@ import Swal from 'sweetalert2';
 import * as XLSX from 'xlsx';
 import { db } from './config/firebase';
 import { processExcelUpload } from './services/syncEngine';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, updateDoc, doc } from 'firebase/firestore';
+
+const parseDate = (dateInput) => {
+  if (!dateInput) return new Date();
+  if (dateInput?.toDate) return dateInput.toDate();
+  return new Date(dateInput);
+};
 
 const calculateTimeElapsed = (admissionDate) => {
+  const parsedDate = parseDate(admissionDate);
   const now = new Date();
-  const hours = differenceInHours(now, admissionDate);
-  const days = differenceInDays(now, admissionDate);
+  const hours = differenceInHours(now, parsedDate);
+  const days = differenceInDays(now, parsedDate);
 
   if (hours < 24) {
     return `${hours} horas`;
@@ -25,8 +32,9 @@ const calculateTimeElapsed = (admissionDate) => {
 };
 
 const getStatusColor = (admissionDate) => {
-  const days = differenceInDays(new Date(), admissionDate);
-  const hours = differenceInHours(new Date(), admissionDate);
+  const parsedDate = parseDate(admissionDate);
+  const days = differenceInDays(new Date(), parsedDate);
+  const hours = differenceInHours(new Date(), parsedDate);
 
   if (hours < 48) return 'border-emerald-500';
   if (hours < 72) return 'border-amber-500';
@@ -120,8 +128,8 @@ function App() {
             sexo: String(row[2] || ''),
             dataInternacao: row[3],
             setor: String(row[4] || ''),
-            leito: String(row[5] || ''),
-            especialidade: String(row[6] || '')
+            especialidade: String(row[6] || ''),
+            leito: String(row[5] || '') // <-- CORRECAO INDICE 5
           }));
 
         await processExcelUpload(dadosTratados, db);
@@ -138,6 +146,90 @@ function App() {
       event.target.value = '';
     };
     reader.readAsArrayBuffer(file);
+  };
+
+  const abrirModalSisreg = async (patient) => {
+    const { value: formValues } = await Swal.fire({
+      title: `SISREG - ${patient.nome}`,
+      html: `
+        <input id="swal-data" type="date" class="swal2-input" placeholder="Data da Solicitação">
+        <input id="swal-numero" type="number" class="swal2-input" placeholder="Número do SISREG">
+      `,
+      focusConfirm: false,
+      showCancelButton: true,
+      confirmButtonText: 'Salvar',
+      cancelButtonText: 'Cancelar',
+      preConfirm: () => {
+        const data = document.getElementById('swal-data').value;
+        const num = document.getElementById('swal-numero').value;
+        if (!data || !num) {
+          Swal.showValidationMessage('Preencha os dois campos!');
+        }
+        return { data, num };
+      }
+    });
+
+    if (formValues) {
+      try {
+        await updateDoc(doc(db, 'gestaoFluxo_pacientes', patient.id), {
+          numeroSisreg: formValues.num,
+          dataSisreg: formValues.data,
+        });
+        Swal.fire('Salvo!', 'SISREG vinculado com sucesso.', 'success');
+      } catch (e) {
+        Swal.fire('Erro', 'Falha ao salvar SISREG', 'error');
+      }
+    }
+  };
+
+  const abrirModalNotas = async (patient) => {
+    const historicoAtual = patient.historico || [];
+    let htmlHistorico = historicoAtual.map(h => `
+      <div style="text-align: left; background: #f0f9ff; border-left: 4px solid #3b82f6; padding: 8px; margin-bottom: 8px; border-radius: 4px; font-size: 13px;">
+        <strong>${new Date(h.data).toLocaleString('pt-BR')} - ${h.usuario}</strong><br/>
+        <span style="color: #334155">${h.texto}</span>
+      </div>
+    `).join('');
+
+    if (!historicoAtual.length) {
+      htmlHistorico = `<div style="font-size: 13px; color: #64748b; margin-bottom: 12px;">Nenhuma nota registrada.</div>`;
+    }
+
+    const { value: novaNota } = await Swal.fire({
+      title: `Evolução / Notas`,
+      html: `
+        <div style="max-height: 200px; overflow-y: auto; margin-bottom: 16px;">
+          ${htmlHistorico}
+        </div>
+        <textarea id="swal-nota" class="swal2-textarea" placeholder="Adicione uma nova observação clínica..." style="margin: 0; width: 100%; font-size: 14px;"></textarea>
+      `,
+      focusConfirm: false,
+      showCancelButton: true,
+      confirmButtonText: 'Adicionar Nota',
+      cancelButtonText: 'Fechar',
+      preConfirm: () => {
+        const txt = document.getElementById('swal-nota').value;
+        if (!txt) return null; // Se vazio apenas cancela o preconfirm silente em relação a nota
+        return txt;
+      }
+    });
+
+    if (novaNota) {
+      try {
+        const newHistObj = {
+          data: new Date().toISOString(),
+          usuario: 'Enfermagem/NIR', // Poderia vir de um Auth Context
+          texto: novaNota
+        };
+        const novoArray = [newHistObj, ...historicoAtual];
+        await updateDoc(doc(db, 'gestaoFluxo_pacientes', patient.id), {
+          historico: novoArray
+        });
+        Swal.fire('Adicionada!', 'Nota clínica salva.', 'success');
+      } catch (e) {
+        Swal.fire('Erro', 'Falha ao salvar nota', 'error');
+      }
+    }
   };
 
   // Lista dinâmica de setores únicos recebidos do banco para o select
@@ -163,7 +255,7 @@ function App() {
 
       // 1.3 Data (Internação)
       if (dataInicio || dataFim) {
-        const adm = p.admission;
+        const adm = parseDate(p.admission);
         if (dataInicio && adm < new Date(dataInicio)) return false;
         if (dataFim) {
           const fim = new Date(dataFim);
@@ -174,8 +266,8 @@ function App() {
 
       // 1.4 Status (Regras Legado Baseadas em Tempo)
       if (statusFiltro) {
-        const hours = differenceInHours(new Date(), p.admission);
-        const days = differenceInDays(new Date(), p.admission);
+        const hours = differenceInHours(new Date(), parseDate(p.admission));
+        const days = differenceInDays(new Date(), parseDate(p.admission));
 
         switch (statusFiltro) {
           case 'Verde': if (hours >= 48) return false; break;
@@ -225,8 +317,9 @@ function App() {
   // Contagem de KPIs lendo da lista FILTRADA FINAL
   const kpis = { verde: 0, amarelo: 0, vermelho: 0, laranja: 0, roxo: 0, preto: 0 };
   motorFiltragem.filtrados.forEach(p => {
-    const hours = differenceInHours(new Date(), p.admission);
-    const days = differenceInDays(new Date(), p.admission);
+    const parsed = parseDate(p.admission);
+    const hours = differenceInHours(new Date(), parsed);
+    const days = differenceInDays(new Date(), parsed);
     if (hours < 48) kpis.verde++;
     else if (hours < 72) kpis.amarelo++;
     else if (days < 7) kpis.vermelho++;
@@ -460,17 +553,15 @@ function App() {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 mt-2 md:mt-0 shrink-0 w-full md:w-auto bg-white">
-                      {!p.numeroSisreg && (
-                        <button className="flex items-center gap-1.5 bg-rose-50 border border-red-200 text-red-600 hover:bg-rose-600 hover:text-white px-3 py-2 rounded-lg font-black text-[10px] shadow-sm animate-pulse transition-colors">
+                      {(!p.numeroSisreg && SETORES_URGENCIA.includes(p.setor?.toUpperCase())) && (
+                        <button onClick={() => abrirModalSisreg(p)} className="flex items-center gap-1.5 bg-rose-50 border border-red-200 text-red-600 hover:bg-rose-600 hover:text-white px-3 py-2 rounded-lg font-black text-[10px] shadow-sm animate-pulse transition-colors">
                           <AlertTriangle size={14} /> FALTA SISREG
                         </button>
                       )}
 
-                      {p.historico && p.historico.length > 0 && (
-                        <button className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-600 hover:text-white px-4 py-2 rounded-lg font-black text-[10px] shadow-sm transition-colors">
-                          <FileText size={14} /> NOTAS ({p.historico.length})
-                        </button>
-                      )}
+                      <button onClick={() => abrirModalNotas(p)} className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-600 hover:text-white px-4 py-2 rounded-lg font-black text-[10px] shadow-sm transition-colors">
+                        <FileText size={14} /> {(p.historico && p.historico.length > 0) ? `NOTAS (${p.historico.length})` : 'ADICIONAR NOTA'}
+                      </button>
                     </div>
                   </div>
                 ))}
