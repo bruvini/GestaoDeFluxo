@@ -216,7 +216,9 @@ function App() {
   const saveNote = async () => {
     if (!noteText.trim() || !activePatient) return;
     try {
-      const historicoAtual = [...(activePatient.historico || [])];
+      // 1. Busca o paciente FRESCO da matriz que é atualizada pelo onSnapshot
+      const pacienteFresco = pacientes.find(p => p.id === activePatient.id) || activePatient;
+      const historicoAtual = [...(pacienteFresco.historico || [])];
 
       if (editingNoteIndex !== null) {
         // Edição de nota existente
