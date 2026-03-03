@@ -9,6 +9,7 @@ import Swal from 'sweetalert2';
 import * as XLSX from 'xlsx';
 import { db } from './config/firebase';
 import { processExcelUpload } from './services/syncEngine';
+import { generatePdfReport } from './services/pdfGenerator';
 import { collection, query, where, onSnapshot, updateDoc, doc } from 'firebase/firestore';
 
 const parseDate = (dateInput) => {
@@ -123,6 +124,18 @@ function App() {
 
     return () => unsubscribe();
   }, []);
+
+  const imprimirRelatorioSisreg = () => {
+    Swal.fire({
+      title: 'Gerando Relatório PDF...',
+      html: 'Formatando layout de impressão para as rondas...',
+      timer: 1500,
+      timerProgressBar: true,
+      didOpen: () => { Swal.showLoading(); }
+    }).then(() => {
+      generatePdfReport(pacientes);
+    });
+  };
 
   const handleImport = async (event) => {
     const file = event.target.files[0];
@@ -444,7 +457,7 @@ function App() {
 
         <div className="flex items-center gap-4">
           <div className="flex gap-2">
-            <button className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded text-sm font-medium transition-colors">
+            <button onClick={imprimirRelatorioSisreg} className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded text-sm font-medium transition-colors">
               <Printer size={16} /> Imprimir SISREG
             </button>
             <button
