@@ -5,7 +5,7 @@ import { collection, writeBatch, doc, getDocs, query, where } from 'firebase/fir
  * Baseado na lógica legado do Apps Script
  */
 const generateId = (nome, dataNascimento) => {
-    const rawId = `${nome.trim().toUpperCase()}${String(dataNascimento)}`;
+    const rawId = encodeURIComponent(`${nome.trim().toUpperCase()}${String(dataNascimento).trim()}`);
     return btoa(rawId).substring(0, 30); // Limita a 30 caracteres para segurança no Firebase ID
 };
 

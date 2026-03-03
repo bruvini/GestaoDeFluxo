@@ -3,7 +3,7 @@ import { differenceInHours, differenceInDays } from 'date-fns';
 import {
   Activity, Printer, Upload, RefreshCw, Search,
   MapPin, Clock, Calendar, AlertTriangle, FileText,
-  User, Hash, FileSpreadsheet
+  User, Hash, FileSpreadsheet, X, Send, Edit2
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import * as XLSX from 'xlsx';
@@ -14,7 +14,19 @@ import { collection, query, where, onSnapshot, updateDoc, doc } from 'firebase/f
 const parseDate = (dateInput) => {
   if (!dateInput) return new Date();
   if (dateInput?.toDate) return dateInput.toDate();
-  return new Date(dateInput);
+  if (dateInput instanceof Date) return dateInput;
+
+  const dateStr = String(dateInput);
+  const ptBrRegex = /^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2}))?/;
+  const match = dateStr.match(ptBrRegex);
+
+  if (match) {
+    const [, day, month, year, hour = 0, minute = 0] = match;
+    return new Date(year, month - 1, day, hour, minute);
+  }
+
+  const fallback = new Date(dateInput);
+  return isNaN(fallback.getTime()) ? new Date() : fallback;
 };
 
 const calculateTimeElapsed = (admissionDate) => {
@@ -62,6 +74,12 @@ function App() {
   const [dataFim, setDataFim] = useState('');
   const [filtroSisreg, setFiltroSisreg] = useState(false);
   const [filtroNotas, setFiltroNotas] = useState(false);
+
+  // States do Slide-over Notas
+  const [isNotesOpen, setIsNotesOpen] = useState(false);
+  const [activePatient, setActivePatient] = useState(null);
+  const [editingNoteIndex, setEditingNoteIndex] = useState(null);
+  const [noteText, setNoteText] = useState('');
 
   const [currentTime, setCurrentTime] = useState(new Date());
   const fileInputRef = useRef(null);
@@ -120,16 +138,18 @@ function App() {
         const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
         const rows = jsonData.slice(3);
 
+        const formatExcelDate = (val) => val instanceof Date ? val.toLocaleDateString('pt-BR') : String(val || '');
+
         const dadosTratados = rows
           .filter(row => row[0])
           .map(row => ({
-            nome: String(row[0] || ''),
-            nascimento: row[1],
+            nome: String(row[0] || '').trim(),
+            nascimento: formatExcelDate(row[1]),
             sexo: String(row[2] || ''),
-            dataInternacao: row[3],
-            setor: String(row[4] || ''),
-            leito: String(row[6] || ''), // Pulando F (5), Leito vai pra G (6)
-            especialidade: String(row[7] || '') // Pulando F (5), Espec vai pra H (7)
+            dataInternacao: row[3] instanceof Date ? row[3].toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : String(row[3] || ''),
+            setor: String(row[4] || '').trim(),
+            leito: String(row[6] || '').trim(), // Pulando F (5), Leito vai pra G (6)
+            especialidade: String(row[7] || '').trim() // Pulando F (5), Espec vai pra H (7)
           }));
 
         const resultado = await processExcelUpload(dadosTratados, db);
@@ -186,53 +206,41 @@ function App() {
     }
   };
 
-  const abrirModalNotas = async (patient) => {
-    const historicoAtual = patient.historico || [];
-    let htmlHistorico = historicoAtual.map(h => `
-      <div style="text-align: left; background: #f0f9ff; border-left: 4px solid #3b82f6; padding: 8px; margin-bottom: 8px; border-radius: 4px; font-size: 13px;">
-        <strong>${new Date(h.data).toLocaleString('pt-BR')} - ${h.usuario}</strong><br/>
-        <span style="color: #334155">${h.texto}</span>
-      </div>
-    `).join('');
+  const openNotesPanel = (patient) => {
+    setActivePatient(patient);
+    setNoteText('');
+    setEditingNoteIndex(null);
+    setIsNotesOpen(true);
+  };
 
-    if (!historicoAtual.length) {
-      htmlHistorico = `<div style="font-size: 13px; color: #64748b; margin-bottom: 12px;">Nenhuma nota registrada.</div>`;
-    }
+  const saveNote = async () => {
+    if (!noteText.trim() || !activePatient) return;
+    try {
+      const historicoAtual = [...(activePatient.historico || [])];
 
-    const { value: novaNota } = await Swal.fire({
-      title: `Evolução / Notas`,
-      html: `
-        <div style="max-height: 200px; overflow-y: auto; margin-bottom: 16px;">
-          ${htmlHistorico}
-        </div>
-        <textarea id="swal-nota" class="swal2-textarea" placeholder="Adicione uma nova observação clínica..." style="margin: 0; width: 100%; font-size: 14px;"></textarea>
-      `,
-      focusConfirm: false,
-      showCancelButton: true,
-      confirmButtonText: 'Adicionar Nota',
-      cancelButtonText: 'Fechar',
-      preConfirm: () => {
-        const txt = document.getElementById('swal-nota').value;
-        if (!txt) return null; // Se vazio apenas cancela o preconfirm silente em relação a nota
-        return txt;
-      }
-    });
-
-    if (novaNota) {
-      try {
-        const newHistObj = {
+      if (editingNoteIndex !== null) {
+        // Edição de nota existente
+        historicoAtual[editingNoteIndex].texto = noteText;
+        historicoAtual[editingNoteIndex].dataEdicao = new Date().toISOString();
+      } else {
+        // Nova nota no topo
+        historicoAtual.unshift({
           data: new Date().toISOString(),
-          usuario: 'Enfermagem/NIR', // Poderia vir de um Auth Context
-          texto: novaNota
-        };
-        const novoArray = [newHistObj, ...historicoAtual];
-        await updateDoc(doc(db, 'gestaoFluxo_pacientes', patient.id), {
-          historico: novoArray
+          usuario: 'Enfermagem/NIR',
+          texto: noteText
         });
-        Swal.fire('Adicionada!', 'Nota clínica salva.', 'success');
-      } catch (e) {
-        Swal.fire('Erro', 'Falha ao salvar nota', 'error');
       }
+
+      await updateDoc(doc(db, 'gestaoFluxo_pacientes', activePatient.id), {
+        historico: historicoAtual
+      });
+
+      setNoteText('');
+      setEditingNoteIndex(null);
+      // O activePatient será atualizado via Firestore real-time onSnapshot
+    } catch (e) {
+      console.error(e);
+      Swal.fire('Erro', 'Falha ao salvar nota', 'error');
     }
   };
 
@@ -570,7 +578,7 @@ function App() {
                         )
                       )}
 
-                      <button onClick={() => abrirModalNotas(p)} className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-600 hover:text-white px-4 py-2 rounded-lg font-black text-[10px] shadow-sm transition-colors">
+                      <button onClick={() => openNotesPanel(p)} className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-600 hover:text-white px-4 py-2 rounded-lg font-black text-[10px] shadow-sm transition-colors">
                         <FileText size={14} /> {(p.historico && p.historico.length > 0) ? `NOTAS (${p.historico.length})` : 'ADICIONAR NOTA'}
                       </button>
                     </div>
@@ -590,6 +598,108 @@ function App() {
         </div>
 
       </main>
+
+      {/* --- SLIDE-OVER NOTAS (Premium Design) --- */}
+      {isNotesOpen && activePatient && (
+        <div className="fixed inset-0 z-[60] flex justify-end">
+          {/* Fundo Opaco */}
+          <div
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"
+            onClick={() => setIsNotesOpen(false)}
+          ></div>
+
+          {/* Painel Lateral */}
+          <div className="relative w-full md:w-1/3 min-w-[320px] max-w-md bg-white shadow-2xl h-full flex flex-col transform transition-transform duration-300 translate-x-0 border-l border-slate-200">
+            {/* Header do Painel */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-[#1e293b] text-white">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-slate-700 rounded-lg shadow-inner">
+                  <FileText size={20} className="text-blue-300" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold leading-tight uppercase tracking-tight">{activePatient.nome}</h2>
+                  <p className="text-xs text-slate-400 font-medium">LEITO {activePatient.leito || 'N/A'} - {activePatient.setor}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsNotesOpen(false)}
+                className="p-2 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Lista de Notas (Scrollável) */}
+            <div className="flex-1 overflow-y-auto p-6 bg-slate-50 space-y-4">
+              {(!activePatient.historico || activePatient.historico.length === 0) ? (
+                <div className="text-center py-12 px-4">
+                  <Activity className="mx-auto h-12 w-12 text-slate-300 mb-3 opacity-50" />
+                  <p className="text-sm font-semibold text-slate-500">Nenhuma evolução registrada.</p>
+                  <p className="text-xs text-slate-400 mt-1">Insira a primeira nota médica ou de enfermagem abaixo.</p>
+                </div>
+              ) : (
+                activePatient.historico.map((nota, idx) => (
+                  <div key={idx} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow group relative">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-2 rounded-full bg-blue-500"></div>
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{new Date(nota.data).toLocaleString('pt-BR')}</span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setNoteText(nota.texto);
+                          setEditingNoteIndex(idx);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-blue-600 bg-slate-50 rounded-md transition-all"
+                        title="Editar nota"
+                      >
+                        <Edit2 size={14} />
+                      </button>
+                    </div>
+                    <div className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
+                      {nota.texto}
+                    </div>
+                    <div className="mt-3 text-[10px] font-semibold text-slate-400 text-right">
+                      Resp: {nota.usuario}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Footer de Input Fixado */}
+            <div className="p-4 bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+              {editingNoteIndex !== null && (
+                <div className="flex items-center justify-between mb-2 px-1">
+                  <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded">Editando Nota...</span>
+                  <button
+                    onClick={() => { setEditingNoteIndex(null); setNoteText(''); }}
+                    className="text-xs font-medium text-slate-500 hover:text-slate-700 underline"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              )}
+              <div className="relative flex items-end">
+                <textarea
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  placeholder="Descreva a evolução ou observação..."
+                  className="w-full bg-slate-50 border border-slate-300 text-slate-800 text-sm rounded-xl pl-4 pr-12 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none min-h-[80px]"
+                ></textarea>
+                <button
+                  onClick={saveNote}
+                  disabled={!noteText.trim()}
+                  className="absolute right-2 bottom-2 p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                >
+                  <Send size={16} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
