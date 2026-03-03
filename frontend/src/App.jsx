@@ -3,7 +3,7 @@ import { differenceInHours, differenceInDays } from 'date-fns';
 import {
   Activity, Printer, Upload, RefreshCw, Search,
   MapPin, Clock, Calendar, AlertTriangle, FileText,
-  User, Hash, FileSpreadsheet, X, Send, Edit2
+  User, Hash, FileSpreadsheet, X, Send, Edit2, Trash2
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import * as XLSX from 'xlsx';
@@ -242,6 +242,42 @@ function App() {
     } catch (e) {
       console.error(e);
       Swal.fire('Erro', 'Falha ao salvar nota', 'error');
+    }
+  };
+
+  const deleteNote = async (indexToDelete) => {
+    const result = await Swal.fire({
+      title: 'Excluir nota?',
+      text: 'Esta ação não pode ser desfeita.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      confirmButtonText: 'Sim, excluir'
+    });
+
+    if (result.isConfirmed) {
+      try {
+        const pacienteFresco = pacientes.find(p => p.id === activePatient.id) || activePatient;
+        const historicoAtual = [...(pacienteFresco.historico || [])];
+
+        historicoAtual.splice(indexToDelete, 1);
+
+        await updateDoc(doc(db, 'gestaoFluxo_pacientes', activePatient.id), {
+          historico: historicoAtual
+        });
+
+        if (editingNoteIndex === indexToDelete) {
+          setNoteText('');
+          setEditingNoteIndex(null);
+        } else if (editingNoteIndex !== null && editingNoteIndex > indexToDelete) {
+          setEditingNoteIndex(editingNoteIndex - 1);
+        }
+
+        Swal.fire('Excluída!', 'A nota foi removida.', 'success');
+      } catch (e) {
+        console.error(e);
+        Swal.fire('Erro', 'Falha ao excluir nota', 'error');
+      }
     }
   };
 
@@ -649,16 +685,25 @@ function App() {
                           <div className="h-2 w-2 rounded-full bg-blue-500"></div>
                           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{new Date(nota.data).toLocaleString('pt-BR')}</span>
                         </div>
-                        <button
-                          onClick={() => {
-                            setNoteText(nota.texto);
-                            setEditingNoteIndex(idx);
-                          }}
-                          className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-blue-600 bg-slate-50 rounded-md transition-all"
-                          title="Editar nota"
-                        >
-                          <Edit2 size={14} />
-                        </button>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => {
+                              setNoteText(nota.texto);
+                              setEditingNoteIndex(idx);
+                            }}
+                            className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-blue-600 bg-slate-50 rounded-md transition-all"
+                            title="Editar nota"
+                          >
+                            <Edit2 size={14} />
+                          </button>
+                          <button
+                            onClick={() => deleteNote(idx)}
+                            className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-red-600 bg-slate-50 rounded-md transition-all"
+                            title="Excluir nota"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       </div>
                       <div className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
                         {nota.texto}
