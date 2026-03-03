@@ -214,9 +214,19 @@ function App() {
       preConfirm: () => {
         const data = document.getElementById('swal-data').value;
         const num = document.getElementById('swal-numero').value;
+
         if (!data || !num) {
           Swal.showValidationMessage('Preencha os dois campos!');
+          return false;
         }
+
+        // Validação de unicidade
+        const pacienteDuplicado = pacientes.find(p => p.id !== patient.id && p.numeroSisreg === num);
+        if (pacienteDuplicado) {
+          Swal.showValidationMessage(`Este SISREG já está em uso pelo paciente: ${pacienteDuplicado.nome}`);
+          return false;
+        }
+
         return { data, num };
       }
     });
