@@ -16,13 +16,13 @@ const parseDate = (dateInput) => {
   if (dateInput?.toDate) return dateInput.toDate();
   if (dateInput instanceof Date) return dateInput;
 
-  const dateStr = String(dateInput);
-  const ptBrRegex = /^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2}))?/;
+  const dateStr = String(dateInput).replace(',', '');
+  const ptBrRegex = /^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?/;
   const match = dateStr.match(ptBrRegex);
 
   if (match) {
-    const [, day, month, year, hour = 0, minute = 0] = match;
-    return new Date(year, month - 1, day, hour, minute);
+    const [, day, month, year, hour = 0, minute = 0, second = 0] = match;
+    return new Date(year, month - 1, day, hour, minute, second);
   }
 
   const fallback = new Date(dateInput);
@@ -71,7 +71,7 @@ function App() {
   const [setorFiltro, setSetorFiltro] = useState('');
   const [statusFiltro, setStatusFiltro] = useState('');
   const [dataInicio, setDataInicio] = useState('');
-  const [dataFim, setDataFim] = useState('');
+  const [dataFim, setDataFFim] = useState('');
   const [filtroSisreg, setFiltroSisreg] = useState(false);
   const [filtroNotas, setFiltroNotas] = useState(false);
 
@@ -226,7 +226,6 @@ function App() {
         // Nova nota no topo
         historicoAtual.unshift({
           data: new Date().toISOString(),
-          usuario: 'Enfermagem/NIR',
           texto: noteText
         });
       }
@@ -599,106 +598,107 @@ function App() {
 
       </main>
 
-      {/* --- SLIDE-OVER NOTAS (Premium Design) --- */}
-      {isNotesOpen && activePatient && (
-        <div className="fixed inset-0 z-[60] flex justify-end">
-          {/* Fundo Opaco */}
-          <div
-            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"
-            onClick={() => setIsNotesOpen(false)}
-          ></div>
+      {/* --- Variavel Reativa: Recupera o State mais fresco do DB via Snapshot Array --- */}
+      {(() => {
+        const currentActivePatient = (isNotesOpen && activePatient) ? (pacientes.find(p => p.id === activePatient.id) || activePatient) : null;
 
-          {/* Painel Lateral */}
-          <div className="relative w-full md:w-1/3 min-w-[320px] max-w-md bg-white shadow-2xl h-full flex flex-col transform transition-transform duration-300 translate-x-0 border-l border-slate-200">
-            {/* Header do Painel */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-[#1e293b] text-white">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-slate-700 rounded-lg shadow-inner">
-                  <FileText size={20} className="text-blue-300" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold leading-tight uppercase tracking-tight">{activePatient.nome}</h2>
-                  <p className="text-xs text-slate-400 font-medium">LEITO {activePatient.leito || 'N/A'} - {activePatient.setor}</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setIsNotesOpen(false)}
-                className="p-2 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
+        return currentActivePatient ? (
+          <div className="fixed inset-0 z-[60] flex justify-end">
+            {/* Fundo Opaco */}
+            <div
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"
+              onClick={() => setIsNotesOpen(false)}
+            ></div>
 
-            {/* Lista de Notas (Scrollável) */}
-            <div className="flex-1 overflow-y-auto p-6 bg-slate-50 space-y-4">
-              {(!activePatient.historico || activePatient.historico.length === 0) ? (
-                <div className="text-center py-12 px-4">
-                  <Activity className="mx-auto h-12 w-12 text-slate-300 mb-3 opacity-50" />
-                  <p className="text-sm font-semibold text-slate-500">Nenhuma evolução registrada.</p>
-                  <p className="text-xs text-slate-400 mt-1">Insira a primeira nota médica ou de enfermagem abaixo.</p>
-                </div>
-              ) : (
-                activePatient.historico.map((nota, idx) => (
-                  <div key={idx} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow group relative">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 w-2 rounded-full bg-blue-500"></div>
-                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{new Date(nota.data).toLocaleString('pt-BR')}</span>
-                      </div>
-                      <button
-                        onClick={() => {
-                          setNoteText(nota.texto);
-                          setEditingNoteIndex(idx);
-                        }}
-                        className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-blue-600 bg-slate-50 rounded-md transition-all"
-                        title="Editar nota"
-                      >
-                        <Edit2 size={14} />
-                      </button>
-                    </div>
-                    <div className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
-                      {nota.texto}
-                    </div>
-                    <div className="mt-3 text-[10px] font-semibold text-slate-400 text-right">
-                      Resp: {nota.usuario}
-                    </div>
+            {/* Painel Lateral */}
+            <div className="relative w-full md:w-1/3 min-w-[320px] max-w-md bg-white shadow-2xl h-full flex flex-col transform transition-transform duration-300 translate-x-0 border-l border-slate-200">
+              {/* Header do Painel */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-[#1e293b] text-white">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-slate-700 rounded-lg shadow-inner">
+                    <FileText size={20} className="text-blue-300" />
                   </div>
-                ))
-              )}
-            </div>
+                  <div>
+                    <h2 className="text-lg font-bold leading-tight uppercase tracking-tight">{currentActivePatient.nome}</h2>
+                    <p className="text-xs text-slate-400 font-medium">LEITO {currentActivePatient.leito || 'N/A'} - {currentActivePatient.setor}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsNotesOpen(false)}
+                  className="p-2 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
 
-            {/* Footer de Input Fixado */}
-            <div className="p-4 bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-              {editingNoteIndex !== null && (
-                <div className="flex items-center justify-between mb-2 px-1">
-                  <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded">Editando Nota...</span>
+              {/* Lista de Notas (Scrollável) */}
+              <div className="flex-1 overflow-y-auto p-6 bg-slate-50 space-y-4">
+                {(!currentActivePatient.historico || currentActivePatient.historico.length === 0) ? (
+                  <div className="text-center py-12 px-4">
+                    <Activity className="mx-auto h-12 w-12 text-slate-300 mb-3 opacity-50" />
+                    <p className="text-sm font-semibold text-slate-500">Nenhuma evolução registrada.</p>
+                    <p className="text-xs text-slate-400 mt-1">Insira a primeira observação clínica abaixo.</p>
+                  </div>
+                ) : (
+                  currentActivePatient.historico.map((nota, idx) => (
+                    <div key={idx} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow group relative">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <div className="h-2 w-2 rounded-full bg-blue-500"></div>
+                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{new Date(nota.data).toLocaleString('pt-BR')}</span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setNoteText(nota.texto);
+                            setEditingNoteIndex(idx);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-blue-600 bg-slate-50 rounded-md transition-all"
+                          title="Editar nota"
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                      </div>
+                      <div className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
+                        {nota.texto}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Footer de Input Fixado */}
+              <div className="p-4 bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                {editingNoteIndex !== null && (
+                  <div className="flex items-center justify-between mb-2 px-1">
+                    <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded">Editando Nota...</span>
+                    <button
+                      onClick={() => { setEditingNoteIndex(null); setNoteText(''); }}
+                      className="text-xs font-medium text-slate-500 hover:text-slate-700 underline"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                )}
+                <div className="relative flex items-end">
+                  <textarea
+                    value={noteText}
+                    onChange={(e) => setNoteText(e.target.value)}
+                    placeholder="Descreva a evolução ou observação..."
+                    className="w-full bg-slate-50 border border-slate-300 text-slate-800 text-sm rounded-xl pl-4 pr-12 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none min-h-[80px]"
+                  ></textarea>
                   <button
-                    onClick={() => { setEditingNoteIndex(null); setNoteText(''); }}
-                    className="text-xs font-medium text-slate-500 hover:text-slate-700 underline"
+                    onClick={saveNote}
+                    disabled={!noteText.trim()}
+                    className="absolute right-2 bottom-2 p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                   >
-                    Cancelar
+                    <Send size={16} />
                   </button>
                 </div>
-              )}
-              <div className="relative flex items-end">
-                <textarea
-                  value={noteText}
-                  onChange={(e) => setNoteText(e.target.value)}
-                  placeholder="Descreva a evolução ou observação..."
-                  className="w-full bg-slate-50 border border-slate-300 text-slate-800 text-sm rounded-xl pl-4 pr-12 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none min-h-[80px]"
-                ></textarea>
-                <button
-                  onClick={saveNote}
-                  disabled={!noteText.trim()}
-                  className="absolute right-2 bottom-2 p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                >
-                  <Send size={16} />
-                </button>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        ) : null;
+      })()}
 
     </div>
   );
