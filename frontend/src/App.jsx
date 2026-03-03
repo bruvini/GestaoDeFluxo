@@ -56,6 +56,15 @@ const getStatusColor = (admissionDate) => {
   return 'border-slate-800';
 };
 
+const formatSisregDate = (dateStr) => {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  return dateStr;
+};
+
 const SETORES_URGENCIA = [
   "PS DECISÃO CIRURGICA",
   "PS DECISÃO CLINICA",
@@ -174,14 +183,33 @@ function App() {
 
   const abrirModalSisreg = async (patient) => {
     const { value: formValues } = await Swal.fire({
-      title: `SISREG - ${patient.nome}`,
+      title: 'INCLUIR SISREG',
       html: `
-        <input id="swal-data" type="date" class="swal2-input" placeholder="Data da Solicitação">
-        <input id="swal-numero" type="number" class="swal2-input" placeholder="Número do SISREG">
+        <div class="text-left space-y-4 mt-4">
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 shadow-sm">
+             <label class="block text-[11px] font-black text-slate-500 uppercase tracking-wider mb-2">Paciente</label>
+             <div class="text-sm font-bold text-slate-800 uppercase">${patient.nome}</div>
+          </div>
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 shadow-sm">
+             <label class="block text-[11px] font-black text-slate-500 uppercase tracking-wider mb-2">Data da Solicitação</label>
+             <input id="swal-data" type="date" class="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value="${new Date().toISOString().split('T')[0]}">
+          </div>
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 shadow-sm">
+             <label class="block text-[11px] font-black text-slate-500 uppercase tracking-wider mb-2">Número do Protocolo</label>
+             <input id="swal-numero" type="number" class="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all" placeholder="Ex: 123456789">
+          </div>
+        </div>
       `,
-      focusConfirm: false,
+      customClass: {
+        popup: 'rounded-2xl shadow-2xl border border-slate-100',
+        title: 'text-xl font-black text-slate-800 tracking-tight',
+        confirmButton: 'bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-bold shadow-md transition-colors ml-2',
+        cancelButton: 'bg-slate-100 hover:bg-slate-200 text-slate-600 px-6 py-2.5 rounded-xl font-bold transition-colors mr-2',
+        actions: 'mt-6 w-full flex justify-center'
+      },
+      buttonsStyling: false,
       showCancelButton: true,
-      confirmButtonText: 'Salvar',
+      confirmButtonText: 'Salvar Protocolo',
       cancelButtonText: 'Cancelar',
       preConfirm: () => {
         const data = document.getElementById('swal-data').value;
@@ -199,7 +227,16 @@ function App() {
           numeroSisreg: formValues.num,
           dataSisreg: formValues.data,
         });
-        Swal.fire('Salvo!', 'SISREG vinculado com sucesso.', 'success');
+        Swal.fire({
+          icon: 'success',
+          title: 'Protocolo Salvo!',
+          text: 'O número foi vinculado ao paciente.',
+          customClass: {
+            popup: 'rounded-2xl',
+            confirmButton: 'bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-bold shadow-md transition-colors'
+          },
+          buttonsStyling: false
+        });
       } catch (e) {
         Swal.fire('Erro', 'Falha ao salvar SISREG', 'error');
       }
@@ -605,7 +642,7 @@ function App() {
 
                       {p.numeroSisreg ? (
                         <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm">
-                          <Activity size={14} /> SISREG: {p.numeroSisreg} <span className="font-semibold opacity-75 ml-1">({p.dataSisreg})</span>
+                          <Activity size={14} /> SISREG: {p.numeroSisreg} <span className="font-semibold opacity-75 ml-1">({formatSisregDate(p.dataSisreg)})</span>
                         </div>
                       ) : (
                         (SETORES_URGENCIA.includes(p.setor?.toUpperCase())) && (
