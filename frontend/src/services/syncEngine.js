@@ -31,7 +31,11 @@ export const processExcelUpload = async (pacientesUpload, db) => {
         });
 
         const currentXlsxUids = new Set();
-        const stats = { updated: 0, created: 0, discharged: 0 };
+
+        let inseridos = 0;
+        let atualizados = 0;
+        let altas = 0;
+
         const now = new Date();
 
         // 2. Itera sobre os dados do XLSX
@@ -49,7 +53,7 @@ export const processExcelUpload = async (pacientesUpload, db) => {
                     status: 'ATIVO',
                     ultimaSinc: now
                 });
-                stats.updated++;
+                atualizados++;
             } else {
                 // Paciente novo: Cria
                 batch.set(docRef, {
@@ -66,7 +70,7 @@ export const processExcelUpload = async (pacientesUpload, db) => {
                     ultimaSinc: now,
                     dataEntrada: now
                 });
-                stats.created++;
+                inseridos++;
             }
         });
 
@@ -79,13 +83,13 @@ export const processExcelUpload = async (pacientesUpload, db) => {
                     dataAlta: now,
                     ultimaSinc: now
                 });
-                stats.discharged++;
+                altas++;
             }
         });
 
         // 4. Executa o Commit das operações (WriteBatch)
         await batch.commit();
-        return stats;
+        return { inseridos, atualizados, altas };
 
     } catch (error) {
         console.error("Erro no SyncEngine:", error);

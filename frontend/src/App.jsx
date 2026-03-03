@@ -128,12 +128,16 @@ function App() {
             sexo: String(row[2] || ''),
             dataInternacao: row[3],
             setor: String(row[4] || ''),
-            especialidade: String(row[6] || ''),
-            leito: String(row[5] || '') // <-- CORRECAO INDICE 5
+            leito: String(row[6] || ''), // Pulando F (5), Leito vai pra G (6)
+            especialidade: String(row[7] || '') // Pulando F (5), Espec vai pra H (7)
           }));
 
-        await processExcelUpload(dadosTratados, db);
-        Swal.fire('Sincronizado', 'O censo foi atualizado com sucesso.', 'success');
+        const resultado = await processExcelUpload(dadosTratados, db);
+        Swal.fire(
+          'Censo Atualizado!',
+          `Novos: ${resultado.inseridos}\nAtualizados: ${resultado.atualizados}\nAltas: ${resultado.altas}`,
+          'success'
+        );
       } catch (error) {
         console.error(error);
         Swal.fire('Erro', 'Falha na importacao', 'error');
@@ -553,10 +557,17 @@ function App() {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 mt-2 md:mt-0 shrink-0 w-full md:w-auto bg-white">
-                      {(!p.numeroSisreg && SETORES_URGENCIA.includes(p.setor?.toUpperCase())) && (
-                        <button onClick={() => abrirModalSisreg(p)} className="flex items-center gap-1.5 bg-rose-50 border border-red-200 text-red-600 hover:bg-rose-600 hover:text-white px-3 py-2 rounded-lg font-black text-[10px] shadow-sm animate-pulse transition-colors">
-                          <AlertTriangle size={14} /> FALTA SISREG
-                        </button>
+
+                      {p.numeroSisreg ? (
+                        <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm">
+                          <Activity size={14} /> SISREG: {p.numeroSisreg} <span className="font-semibold opacity-75 ml-1">({p.dataSisreg})</span>
+                        </div>
+                      ) : (
+                        (SETORES_URGENCIA.includes(p.setor?.toUpperCase())) && (
+                          <button onClick={() => abrirModalSisreg(p)} className="flex items-center gap-1.5 bg-rose-50 border border-red-200 text-red-600 hover:bg-rose-600 hover:text-white px-3 py-2 rounded-lg font-black text-[10px] shadow-sm animate-pulse transition-colors">
+                            <AlertTriangle size={14} /> FALTA SISREG
+                          </button>
+                        )
                       )}
 
                       <button onClick={() => abrirModalNotas(p)} className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-600 hover:text-white px-4 py-2 rounded-lg font-black text-[10px] shadow-sm transition-colors">
